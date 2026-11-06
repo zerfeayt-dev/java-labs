@@ -1,0 +1,23 @@
+package journal.model;
+
+public class JournalRecord {
+    private final String lastName;
+    private final String firstName;
+    private final String birthDate;
+    private final String phone;
+    private final Address address;
+
+    public JournalRecord(String lastName, String firstName, String birthDate, String phone, Address address) {
+        this.lastName = lastName;
+        this.firstName = firstName;
+        this.birthDate = birthDate;
+        this.phone = phone;
+        this.address = address;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Студент: %s %s | Дата нар.: %s | Тел.: %s | Адреса: %s",
+                lastName, firstName, birthDate, phone, address);
+    }
+}
