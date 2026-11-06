@@ -1,0 +1,99 @@
+package hardtask;
+
+import java.util.Objects;
+
+public class MyLinkedHashSet<E> {
+    private static class Entry<E> {
+        final E value;
+        Entry<E> nextInBucket;
+        Entry<E> before, after;
+
+        Entry(E value) {
+            this.value = value;
+        }
+    }
+
+    private Entry<E>[] buckets;
+    private Entry<E> head, tail;
+    private int size = 0;
+
+    @SuppressWarnings("unchecked")
+    public MyLinkedHashSet() {
+        buckets = (Entry<E>[]) new Entry[16];
+    }
+
+    private int bucketIndex(Object o) {
+        return (o == null) ? 0 : Math.abs(o.hashCode() % buckets.length);
+    }
+
+    public boolean add(E e) {
+        int idx = bucketIndex(e);
+        Entry<E> curr = buckets[idx];
+        while (curr != null) {
+            if (Objects.equals(curr.value, e)) return false;
+            curr = curr.nextInBucket;
+        }
+
+        Entry<E> newEntry = new Entry<>(e);
+        newEntry.nextInBucket = buckets[idx];
+        buckets[idx] = newEntry;
+
+        if (head == null) {
+            head = tail = newEntry;
+        } else {
+            tail.after = newEntry;
+            newEntry.before = tail;
+            tail = newEntry;
+        }
+        size++;
+        return true;
+    }
+
+    public boolean contains(Object o) {
+        int idx = bucketIndex(o);
+        Entry<E> curr = buckets[idx];
+        while (curr != null) {
+            if (Objects.equals(curr.value, o)) return true;
+            curr = curr.nextInBucket;
+        }
+        return false;
+    }
+
+    public boolean remove(Object o) {
+        int idx = bucketIndex(o);
+        Entry<E> curr = buckets[idx];
+        Entry<E> prev = null;
+
+        while (curr != null) {
+            if (Objects.equals(curr.value, o)) {
+                if (prev == null) buckets[idx] = curr.nextInBucket;
+                else prev.nextInBucket = curr.nextInBucket;
+
+                if (curr.before == null) head = curr.after;
+                else curr.before.after = curr.after;
+
+                if (curr.after == null) tail = curr.before;
+                else curr.after.before = curr.before;
+
+                size--;
+                return true;
+            }
+            prev = curr;
+            curr = curr.nextInBucket;
+        }
+        return false;
+    }
+
+    public int size() {
+        return size;
+    }
+
+    public Object[] toArray() {
+        Object[] arr = new Object[size];
+        int i = 0;
+        for (Entry<E> curr = head; curr != null; curr = curr.after) {
+            arr[i++] = curr.value;
+        }
+        return arr;
+    }
+}
