@@ -1,2 +1,3 @@
 # java-labs
-Chigarev Oleksandr
+Chigarev Oleksandr - IO-44
+Variant - 105 (5)
