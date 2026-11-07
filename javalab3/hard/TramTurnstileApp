@@ -1,0 +1,231 @@
+package task3_4;
+
+import java.time.LocalDate;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+public class TramTurnstileApp {
+
+    // Категорії пасажирів
+    enum PassengerCategory {
+        PUPIL, STUDENT, REGULAR
+    }
+
+    // Типи карток за способом оплати/терміном дії
+    enum ValidityType {
+        MONTH, TEN_DAYS, FIVE_TRIPS, TEN_TRIPS, ACCUMULATIVE
+    }
+
+    // Клас проїзної картки, що зберігає всі свої дані
+    static class TravelCard {
+        private final String id;
+        private final PassengerCategory category;
+        private final ValidityType validityType;
+        private final LocalDate expirationDate;
+        private int remainingTrips;
+        private double balance;
+
+        public TravelCard(PassengerCategory category, ValidityType validityType,
+                          LocalDate expirationDate, int remainingTrips, double balance) {
+            this.id = UUID.randomUUID().toString().substring(0, 8);
+            this.category = category;
+            this.validityType = validityType;
+            this.expirationDate = expirationDate;
+            this.remainingTrips = remainingTrips;
+            this.balance = balance;
+        }
+
+        public String getId() { return id; }
+        public PassengerCategory getCategory() { return category; }
+        public ValidityType getValidityType() { return validityType; }
+        public LocalDate getExpirationDate() { return expirationDate; }
+        public int getRemainingTrips() { return remainingTrips; }
+        public double getBalance() { return balance; }
+
+        public void deductTrip() { this.remainingTrips--; }
+        public void deductBalance(double amount) { this.balance -= amount; }
+        public void topUp(double amount) {
+            if (validityType == ValidityType.ACCUMULATIVE && amount > 0) {
+                this.balance += amount;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return String.format("Картка[%s | %s | %s | Дійсна до: %s | Поїздок: %d | Баланс: %.2f грн]",
+                    id, category, validityType, expirationDate, remainingTrips, balance);
+        }
+    }
+
+    // Система реєстру виданих карток
+    static class CardRegistry {
+        private final Map<String, TravelCard> issuedCards = new HashMap<>();
+
+        // Випуск картки за терміном дії (на місяць або 10 днів)
+        public TravelCard issueTimeCard(PassengerCategory category, ValidityType type, LocalDate validUntil) {
+            if (type != ValidityType.MONTH && type != ValidityType.TEN_DAYS) {
+                throw new IllegalArgumentException("Невірний тип термінової картки!");
+            }
+            TravelCard card = new TravelCard(category, type, validUntil, 0, 0.0);
+            issuedCards.put(card.getId(), card);
+            return card;
+        }
+
+        // Випуск картки на кількість поїздок (5 або 10)
+        public TravelCard issueTripCard(PassengerCategory category, ValidityType type, LocalDate validUntil) {
+            int trips = switch (type) {
+                case FIVE_TRIPS -> 5;
+                case TEN_TRIPS -> 10;
+                default -> throw new IllegalArgumentException("Невірний тип картки на поїздки!");
+            };
+            TravelCard card = new TravelCard(category, type, validUntil, trips, 0.0);
+            issuedCards.put(card.getId(), card);
+            return card;
+        }
+
+        // Випуск накопичувальної картки (тільки REGULAR, без обмеження терміну дії)
+        public TravelCard issueAccumulativeCard(PassengerCategory category, double initialBalance) {
+            if (category != PassengerCategory.REGULAR) {
+                throw new IllegalArgumentException("Накопичувальна картка може бути тільки ЗВИЧАЙНОГО (REGULAR) типу!");
+            }
+            TravelCard card = new TravelCard(category, ValidityType.ACCUMULATIVE, null, 0, initialBalance);
+            issuedCards.put(card.getId(), card);
+            return card;
+        }
+
+        public boolean isRegistered(String cardId) {
+            return issuedCards.containsKey(cardId);
+        }
+    }
+
+    // Вбудований процесор турнікета
+    static class Turnstile {
+        private static final double FARE_PRICE = 8.0; // Вартість 1 поїздки для накопичувальної картки
+        private final CardRegistry registry;
+
+        private int totalAllowed = 0;
+        private int totalDenied = 0;
+        private final Map<PassengerCategory, Integer> allowedByCategory = new EnumMap<>(PassengerCategory.class);
+        private final Map<PassengerCategory, Integer> deniedByCategory = new EnumMap<>(PassengerCategory.class);
+        private final Map<ValidityType, Integer> allowedByValidity = new EnumMap<>(ValidityType.class);
+        private final Map<ValidityType, Integer> deniedByValidity = new EnumMap<>(ValidityType.class);
+
+        public Turnstile(CardRegistry registry) {
+            this.registry = registry;
+            for (PassengerCategory c : PassengerCategory.values()) {
+                allowedByCategory.put(c, 0);
+                deniedByCategory.put(c, 0);
+            }
+            for (ValidityType v : ValidityType.values()) {
+                allowedByValidity.put(v, 0);
+                deniedByValidity.put(v, 0);
+            }
+        }
+
+        public boolean processPass(TravelCard card) {
+            // Перевірка 1: Чи вдалося зчитати картку та чи є вона в реєстрі
+            if (card == null || !registry.isRegistered(card.getId())) {
+                totalDenied++;
+                System.out.println("[ВІДМОВА] Картку не вдалося зчитати або її немає в реєстрі.");
+                return false;
+            }
+
+            // Перевірка 2: Термін дії (для не-накопичувальних карток)
+            if (card.getExpirationDate() != null && card.getExpirationDate().isBefore(LocalDate.now())) {
+                recordDecision(card, false, "Картка прострочена");
+                return false;
+            }
+
+            // Перевірка 3: Наявність поїздок або коштів
+            switch (card.getValidityType()) {
+                case MONTH, TEN_DAYS -> {
+                    recordDecision(card, true, "Безлімітна картка дійсна");
+                    return true;
+                }
+                case FIVE_TRIPS, TEN_TRIPS -> {
+                    if (card.getRemainingTrips() > 0) {
+                        card.deductTrip();
+                        recordDecision(card, true, "Знято 1 поїздку. Залишок: " + card.getRemainingTrips());
+                        return true;
+                    } else {
+                        recordDecision(card, false, "На картці не залишилося поїздок");
+                        return false;
+                    }
+                }
+                case ACCUMULATIVE -> {
+                    if (card.getBalance() >= FARE_PRICE) {
+                        card.deductBalance(FARE_PRICE);
+                        recordDecision(card, true, "Знято " + FARE_PRICE + " грн. Залишок: " + card.getBalance() + " грн");
+                        return true;
+                    } else {
+                        recordDecision(card, false, "Недостатньо коштів на балансі (" + card.getBalance() + " грн)");
+                        return false;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private void recordDecision(TravelCard card, boolean allowed, String reason) {
+            if (allowed) {
+                totalAllowed++;
+                allowedByCategory.put(card.getCategory(), allowedByCategory.get(card.getCategory()) + 1);
+                allowedByValidity.put(card.getValidityType(), allowedByValidity.get(card.getValidityType()) + 1);
+                System.out.println("[ДОЗВОЛЕНО] " + card.getId() + " (" + card.getCategory() + ", " + card.getValidityType() + ") -> " + reason);
+            } else {
+                totalDenied++;
+                deniedByCategory.put(card.getCategory(), deniedByCategory.get(card.getCategory()) + 1);
+                deniedByValidity.put(card.getValidityType(), deniedByValidity.get(card.getValidityType()) + 1);
+                System.out.println("[ВІДМОВА]   " + card.getId() + " (" + card.getCategory() + ", " + card.getValidityType() + ") -> " + reason);
+            }
+        }
+
+        public void printSummaryStats() {
+            System.out.println("\n=== 1) СУМАРНІ ДАНІ ТУРНІКЕТА ===");
+            System.out.println("Усього дозволів проходу: " + totalAllowed);
+            System.out.println("Усього відмов проходу:   " + totalDenied);
+        }
+
+        public void printStatsByType() {
+            System.out.println("\n=== 2) СТАТИСТИКА ЗА КАТЕГОРІЯМИ ПАСАЖИРІВ ===");
+            for (PassengerCategory c : PassengerCategory.values()) {
+                System.out.printf("%-10s -> Дозволено: %d | Відмовлено: %d%n",
+                        c, allowedByCategory.get(c), deniedByCategory.get(c));
+            }
+            System.out.println("\n=== СТАТИСТИКА ЗА ТИПАМИ ПРОЇЗНИХ КВИТКІВ ===");
+            for (ValidityType v : ValidityType.values()) {
+                System.out.printf("%-14s -> Дозволено: %d | Відмовлено: %d%n",
+                        v, allowedByValidity.get(v), deniedByValidity.get(v));
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        CardRegistry registry = new CardRegistry();
+        Turnstile turnstile = new Turnstile(registry);
+
+        // Випускаємо різні типи карток у системі
+        TravelCard studentMonth = registry.issueTimeCard(
+                PassengerCategory.STUDENT, ValidityType.MONTH, LocalDate.now().plusDays(20));
+        TravelCard pupilExpired = registry.issueTimeCard(
+                PassengerCategory.PUPIL, ValidityType.TEN_DAYS, LocalDate.now().minusDays(2)); // Прострочена
+        TravelCard regular5Trips = registry.issueTripCard(
+                PassengerCategory.REGULAR, ValidityType.FIVE_TRIPS, LocalDate.now().plusDays(15));
+        TravelCard accumCard = registry.issueAccumulativeCard(
+                PassengerCategory.REGULAR, 10.0); // Вистачить на 1 поїздку (8 грн)
+
+        System.out.println("=== Моделювання проходів через турнікет ===");
+        turnstile.processPass(studentMonth);  // Дозволено
+        turnstile.processPass(pupilExpired);  // Відмова (прострочена)
+        turnstile.processPass(regular5Trips); // Дозволено (залишилось 4 поїздки)
+        turnstile.processPass(accumCard);     // Дозволено (залишок 2 грн)
+        turnstile.processPass(accumCard);     // Відмова (недостатньо коштів)
+        turnstile.processPass(null);          // Відмова (помилка зчитування)
+
+        // Вивід статистики за запитом
+        turnstile.printSummaryStats();
+        turnstile.printStatsByType();
+    }
+}
